@@ -11,6 +11,16 @@ handle_error() {
     fi
 }
 
+# Function to normalize a filesystem path
+normalize_path() {
+    local input_path="$1"
+    # Remove trailing slashes (but not if path is just "/")
+    input_path="${input_path%/}"
+    # Replace multiple leading slashes with a single one
+    input_path="${input_path/#\/\/*/\/}"
+    echo "$input_path"
+}
+
 # Function to patch app entitlements
 patch_app_entitlements() {
     local app_path="$1"
@@ -75,11 +85,14 @@ locations=(
 echo "🔍 Searching for Star Trek Fleet Command.app..."
 
 app_path=""
-for path in "${locations[@]}"; do
+for raw_path in "${locations[@]}"; do
     # Skip blank entries
-    if [[ -z "$path" ]]; then
+    if [[ -z "$raw_path" ]]; then
         continue
     fi
+
+    # Normalize path (remove trailing /, collapse //)
+    path=$(normalize_path "$raw_path")
 
     echo "  → Checking: $path"
 
@@ -104,7 +117,7 @@ fi
 binary_path="$app_path/Contents/MacOS/Star Trek Fleet Command"
 if [[ -f "$binary_path" ]]; then
     echo "🚀 Found game binary at: $binary_path"
-    patch_app_entitlements "$binary_path"
+    patch_app_entitlements "$app_path"
 else
     echo "❌ Game binary not found inside bundle at expected path:"
     echo "   $binary_path"
