@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/zsh --no-rcs
 
 # Function to patch app entitlements
 patch_app_entitlements() {
