@@ -1,6 +1,4 @@
 #!/usr/bin/env zsh
-
-# Ensure zsh doesn't load user or global rc files
 setopt NO_RCS
 
 # Function to handle errors
@@ -8,7 +6,7 @@ handle_error() {
     local exit_code=$1
     local message="$2"
     if [ $exit_code -ne 0 ]; then
-        echo "Error ($exit_code): $message"
+        echo "❌ Error ($exit_code): $message"
         exit $exit_code
     fi
 }
@@ -18,59 +16,97 @@ patch_app_entitlements() {
     local app_path="$1"
     local entitlements_plist=/tmp/debug_entitlements.plist
 
-    # Deactivated for now - STFC doesn't set any entitlements so far 
-    # echo "Grabbing entitlements from app..."
-    # codesign -d --display --entitlements - "$app_path" --xml >> $entitlements_plist
-    # handle_error $? "Failed to grab entitlements from $app_path"
+    echo "🔧 Preparing entitlements plist..."
+    /usr/libexec/PlistBuddy -c "Clear dict" "$entitlements_plist" 2>/dev/null || \
+        /usr/libexec/PlistBuddy -c "Add : dict" "$entitlements_plist"
+    handle_error $? "Failed to initialize $entitlements_plist"
 
-    echo "Patching entitlements (if missing)..."
-    /usr/libexec/PlistBuddy -c "add :com.apple.security.cs.disable-library-validation bool true" -x $entitlements_plist
+    echo "🧩 Adding entitlements..."
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$entitlements_plist"
     handle_error $? "Failed to add disable-library-validation"
 
-    /usr/libexec/PlistBuddy -c "add :com.apple.security.cs.allow-unsigned-executable-memory bool true" -x $entitlements_plist
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.allow-unsigned-executable-memory bool true" "$entitlements_plist"
     handle_error $? "Failed to add allow-unsigned-executable-memory"
 
-    /usr/libexec/PlistBuddy -c "add :com.apple.security.get-task-allow bool true" -x $entitlements_plist
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$entitlements_plist"
     handle_error $? "Failed to add get-task-allow"
 
-    /usr/libexec/PlistBuddy -c "add :com.apple.security.cs.allow-dyld-environment-variables bool true" -x $entitlements_plist
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.allow-dyld-environment-variables bool true" "$entitlements_plist"
     handle_error $? "Failed to add allow-dyld-environment-variables"
 
-    echo "Re-applying entitlements..."
-    codesign --force --options runtime --sign - --entitlements $entitlements_plist "$app_path"
+    echo "🪪 Re-signing app..."
+    codesign --force --options runtime --sign - --entitlements "$entitlements_plist" "$app_path"
     handle_error $? "codesign failed on $app_path"
 
-    echo "Removing temporary plist..."
-    rm $entitlements_plist
+    echo "🧹 Cleaning up..."
+    rm -f "$entitlements_plist"
     handle_error $? "Failed to remove temporary plist $entitlements_plist"
+
+    echo "✅ Successfully patched entitlements for: $app_path"
 }
 
-# List of potential app locations
+# Path to the INI file
+ini_path="$HOME/Library/Preferences/Star Trek Fleet Command/launcher_settings.ini"
+game_path=""
+
+# Try to extract game path from INI
+if [[ -f "$ini_path" ]]; then
+    echo "📄 Reading launcher_settings.ini..."
+    game_install_path=$(awk -F= '/^\[General\]/ { in_section=1; next } /^\[/ { in_section=0 } in_section && /^152033..GAME_PATH/ { print $2 }' "$ini_path" | xargs)
+    if [[ -n "$game_install_path" && -d "$game_install_path" ]]; then
+        echo "📁 Found game install path from INI: $game_install_path"
+        game_path="$game_install_path"
+    else
+        echo "⚠️  Could not find valid GAME_PATH in launcher_settings.ini"
+    fi
+else
+    echo "⚠️  launcher_settings.ini not found at $ini_path"
+fi
+
+# Possible app locations (first non-empty, valid one wins)
 locations=(
     "$1"
+    "$game_path"
     "$HOME/Library/Application Support"
     "$HOME/Applications"
     "/Applications"
 )
 
-app_path=""
+echo "🔍 Searching for Star Trek Fleet Command.app..."
 
-# Find the first existing app path
+app_path=""
 for path in "${locations[@]}"; do
-    if [ -d "$path" ]; then
-        if [ -f "$path/Star Trek Fleet Command.app" ]; then
-            app_path="$path"
-            break
-        fi
+    # Skip blank entries
+    if [[ -z "$path" ]]; then
+        continue
+    fi
+
+    echo "  → Checking: $path"
+
+    # Check both folder types
+    if [[ -d "$path/Star Trek Fleet Command.app" ]]; then
+        app_path="$path/Star Trek Fleet Command.app"
+        echo "  ✅ Found app bundle at: $app_path"
+        break
+    elif [[ "$path" == *".app" && -d "$path" ]]; then
+        app_path="$path"
+        echo "  ✅ Found app bundle at: $app_path"
+        break
     fi
 done
 
-if [ -z "$app_path" ]; then
-    echo "Star Trek Fleet Command.app not found! Please make sure the app is installed."
+if [[ -z "$app_path" ]]; then
+    echo "❌ Star Trek Fleet Command.app not found!"
     exit 1
 fi
 
-echo "Found app at: $app_path"
-
-# Call the patching function
-patch_app_entitlements "$app_path"
+# Locate the internal binary
+binary_path="$app_path/Contents/MacOS/Star Trek Fleet Command"
+if [[ -f "$binary_path" ]]; then
+    echo "🚀 Found game binary at: $binary_path"
+    patch_app_entitlements "$binary_path"
+else
+    echo "❌ Game binary not found inside bundle at expected path:"
+    echo "   $binary_path"
+    exit 1
+fi
