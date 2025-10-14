@@ -35,8 +35,8 @@ patch_app_entitlements() {
     handle_error $? "Failed to add allow-dyld-environment-variables"
 
     echo "🪪 Re-signing app..."
-    codesign --force --options runtime --sign - --entitlements "$entitlements_plist" "$app_path"
-    handle_error $? "codesign failed on $app_path"
+    /usr/bin/codesign --force --options runtime --sign - --entitlements "$entitlements_plist" "$app_path"
+    handle_error $? "/usr/bin/codesign failed on $app_path"
 
     echo "🧹 Cleaning up..."
     rm -f "$entitlements_plist"
