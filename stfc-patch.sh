@@ -39,7 +39,7 @@ patch_app_entitlements() {
     handle_error $? "/usr/bin/codesign failed on $app_path"
 
     echo "🧹 Cleaning up..."
-    rm -f "$entitlements_plist"
+    /bin/rm -f "$entitlements_plist"
     handle_error $? "Failed to remove temporary plist $entitlements_plist"
 
     echo "✅ Successfully patched entitlements for: $app_path"
